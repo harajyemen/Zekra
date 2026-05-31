@@ -1,0 +1,39 @@
+# Buildozer
+.buildozer/
+bin/
+
+# Build logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.tox/
+venv/
+.venv/
+env/
+
+# ONNX model (large binary — download via download_model.py)
+*.onnx
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Android signing keys (never commit these)
+*.jks
+*.keystore
+*.p12
+*.pem
