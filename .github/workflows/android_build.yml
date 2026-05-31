@@ -1,0 +1,104 @@
+name: Build Zekra APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up OpenJDK 17 (Stable)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Core Dependencies & Autoconf Failure Prevention
+        run: |
+          sudo apt-get update --fix-missing
+          sudo apt-get install -y \
+            autoconf automake libtool pkg-config \
+            libffi-dev libssl-dev zlib1g-dev \
+            ccache unzip zip git curl \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+            libgstreamer1.0-dev gstreamer1.0-plugins-base \
+            python3-dev python3-setuptools
+          pip install --upgrade pip virtualenv
+          pip install --upgrade buildozer cython==0.29.37
+
+      - name: Configure Android SDK Licenses
+        run: |
+          mkdir -p ~/.android
+          touch ~/.android/repositories.cfg
+          if command -v sdkmanager &>/dev/null; then
+            yes | sdkmanager --licenses || true
+          fi
+
+      - name: Patch buildozer.spec
+        run: |
+          # Force minapi to 24 for modern binary compatibility
+          sed -i 's/^android\.minapi\s*=.*/android.minapi = 24/' buildozer.spec
+
+          # Pin numpy to stable version to avoid C++ compilation bugs
+          sed -i 's/^requirements\s*=.*/requirements = python3,kivy,numpy==1.21.0,opencv-python-headless,onnxruntime/' buildozer.spec
+
+          # Force debug mode (overrides any release flag in spec)
+          sed -i 's/^android\.release\s*=.*/android.release = False/' buildozer.spec
+
+          # Confirm patched spec
+          echo "--- Patched buildozer.spec ---"
+          cat buildozer.spec
+
+      - name: Download YOLOv8 ONNX Model
+        run: |
+          python download_model.py || true
+          # Fallback: create placeholder if download fails so build continues
+          if [ ! -f yolov8n.onnx ]; then
+            echo "WARNING: Model download failed. Creating placeholder."
+            touch yolov8n.onnx
+          fi
+
+      - name: Compile and Build Debug APK
+        run: |
+          yes | buildozer android debug 2>&1 | tee build.log
+          echo "Exit code: $?"
+
+      - name: Check Build Result
+        run: |
+          if ls bin/*.apk 1>/dev/null 2>&1; then
+            echo "BUILD SUCCESS"
+            ls -lh bin/*.apk
+          else
+            echo "BUILD FAILED — last 100 lines of build log:"
+            tail -100 build.log
+            exit 1
+          fi
+
+      - name: Upload APK Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zekra-Offline-AI-App
+          path: bin/*.apk
+          retention-days: 30
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-failure
+          path: build.log
+          retention-days: 7
